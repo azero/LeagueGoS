@@ -12,11 +12,13 @@ Features:
 -Kill Steal
 -Auto Level [R > Q > W > E]
 -QSS / Scimitar usage
+-Q usage to setup E stun
 
 Best With: IOW
-Version: 103
+Version: 104
 
 To Do:
+-Check target is dashing to us before E
 -Better E Calculations
 -Better Q position
 -Add spell procs to damage calculations
@@ -27,6 +29,7 @@ To Do:
 
 local champName = GetObjectName(myHero)
 local mainMenu = MenuConfig("CleanVayne" , "--[[ Clean Vayne Mechanics ]]--")
+local version = 104
 
 local trueRange = GetRange(myHero)
 local levelTree = { _Q, _W, _E, _Q, _Q, _R, _Q, _W, _Q, _W, _R, _W, _W, _E, _E, _R, _E, _E }
@@ -314,24 +317,65 @@ function OnCombo()
 				CastSpell(item3142)
 			end
 			
-			if mainMenu.Combo.Q.use:Value() and IsReady(myHero, _Q) then
-				if GotBuff(cTarget, "VayneSilveredDebuff") >= 2 then 
-					if GetDistance(TumbleEnd(GetOrigin(cTarget)), cTarget) < trueRange then
-						CastSkillShot(_Q, cTarget)
+			if mainMenu.Combo.Q.usePosition:Value() and mainMenu.Combo.E.use:Value() and IsReady(myHero, _E) and IsReady(myHero, _Q) and targetRange <= champInfo["E"].range + champInfo["Q"].range then
+				local dashEnd = TumbleEnd(GetMousePos())
+				if GetDistance(dashEnd, cTarget) <= champInfo["E"].range and CanWallStunFrom(cTarget, dashEnd) then
+					CastSkillShot(_Q, dashEnd)
+					if mainMenu.draw.spells then
+						PrettyPrint("Cast Spell [Q] [Calculated] [Setup E]")
+					end
+					DelayAction(function()
+						CastTargetSpell(target, _E)
 						if mainMenu.draw.spells then
-							PrettyPrint("Cast Spell [Q] [To Target] [Proc W]")
+							PrettyPrint("Cast Spell [E] [" .. GetObjectName(cTarget) .. "]")
 						end
+					end, 0.5)
+				else
+					local wSP = FindWallStun(cTarget)
+					if wSP ~= false then
+						CastSkillShot(_Q, wSP)
+						if mainMenu.draw.spells then
+							PrettyPrint("Cast Spell [Q] [Calculated] [Setup E]")
+						end
+						DelayAction(function()
+							CastTargetSpell(target, _E)
+							if mainMenu.draw.spells then
+								PrettyPrint("Cast Spell [E] [" .. GetObjectName(cTarget) .. "]")
+							end
+						end, 0.5)
+					end
+				end
+			end
+			
+			if mainMenu.Combo.Q.use:Value() and IsReady(myHero, _Q) then
+				local wallRoll = FindWallRoll(cTarget, trueRange)
+				if GotBuff(cTarget, "VayneSilveredDebuff") >= 2 then
+					if wallRoll ~= false then
+						CastSkillShot(_Q, wallRoll)
+						if mainMenu.draw.spells then
+							PrettyPrint("Cast Spell [Q] [Calculated] [Proc W]")
+						end
+					--elseif GetDistance(TumbleEnd(GetOrigin(cTarget)), cTarget) < trueRange then
+					--	CastSkillShot(_Q, cTarget)
+					--	if mainMenu.draw.spells then
+					--		PrettyPrint("Cast Spell [Q] [To Target] [Proc W]")
+					--	end
 					elseif GetDistance(TumbleEnd(GetMousePos()), cTarget) < trueRange then
 						CastSkillShot(_Q, GetMousePos())
 						if mainMenu.draw.spells then
 							PrettyPrint("Cast Spell [Q] [Mouse Position] [Proc W]")
 						end
 					end
-				elseif targetRange > trueRange and GetDistance(TumbleEnd(GetOrigin(cTarget)), cTarget) < trueRange then
-					CastSkillShot(_Q, cTarget)
+				elseif wallRoll ~= false then
+					CastSkillShot(_Q, wallRoll)
 					if mainMenu.draw.spells then
-						PrettyPrint("Cast Spell [Q] [To Target]")
+						PrettyPrint("Cast Spell [Q] [Calculated]")
 					end
+				--elseif targetRange > trueRange and GetDistance(TumbleEnd(GetOrigin(cTarget)), cTarget) < trueRange then
+				--	CastSkillShot(_Q, cTarget)
+				--	if mainMenu.draw.spells then
+				--		PrettyPrint("Cast Spell [Q] [To Target]")
+				--	end
 				elseif targetRange > trueRange and GetDistance(TumbleEnd(GetMousePos()), cTarget) < trueRange then
 					CastSkillShot(_Q, GetMousePos())
 					if mainMenu.draw.spells then
@@ -452,17 +496,71 @@ end
 
 function WallStun(target)
 	--This will work for now, credits to: [Reincarnation] Vayne - Chine.lua (Edited By: Me)
-	local predictedChamp = GetPredictionForPlayer(GetOrigin(myHero), target, GetMoveSpeed(target), 2000, 250, 1000, 1, false, true)
+	local predictedChamp = GetPredictionForPlayer(GetOrigin(myHero), target, GetMoveSpeed(target) * 1.15, 2000, 275, 1000, 1, false, true)
 	local playerVector = Vector(predictedChamp.PredPos)
 	local myVector = Vector(GetOrigin(myHero))
 	local maxEDistance = playerVector - (playerVector - myVector) * ( - mainMenu.Combo.E.range:Value() / GetDistance(playerVector))
 	local pushLine = Line(Point(playerVector.x, playerVector.y, playerVector.z), Point(maxEDistance.x, maxEDistance.y, maxEDistance.z))
 	for _, position in pairs(pushLine:__getPoints()) do
-		if MapPosition:inWall(position) then
+		if MapPosition:inWall(position) or MapPosition:intersectsWall(position) then
 			CastTargetSpell(target, _E)
 			break
 		end
 	end
+end
+
+function CanWallStunFrom(target, newLoc)
+	local predictedChamp = GetPredictionForPlayer(newLoc, target, GetMoveSpeed(target) * 1.15, 2000, 275, 1500, 1, false, true)
+	local locVector = Vector(newLoc)
+	local targetVector = Vector(predictedChamp.PredPos)
+	local maxEDistance = targetVector - (targetVector - locVector) ^ (- mainMenu.Combo.E.range:Value() / GetDistance(targetVector))
+	local pushLine = Line(Point(targetVector.x, targetVector.y, targetVector.z), Point(maxEDistance.x, maxEDistance.y, maxEDistance.z))
+	for _, pos in pairs(pushLine:__getPoints()) do
+		if MapPosition:inWall(pos) or MapPosition:intersectsWall(pos) then
+			return true
+		end
+	end
+end
+--Need to be improved upon
+function FindWallStun(target)
+	local bLength = (GetRange(myHero) / 3)
+	local predictedChamp = GetPredictionForPlayer(newLoc, target, GetMoveSpeed(target) * 1.15, 2000, 275, 1500, 1, false, true)
+	local NEV = predictedChamp.PredPos:normalized() + bLength
+	if CanWallStunFrom(target, NEV) then
+		return NEV
+	end
+	local SWV = predictedChamp.PredPos:normalized() - bLength
+	if CanWallStunFrom(target, NEV) then
+		return SWV
+	end
+	return false
+end
+--Need to be improved upon
+function FindWallRoll(target, range)
+	local bLength = 200
+	local hVector = Vector(GetOrigin(myHero))
+	local NEV = hVector:normalized() + bLength
+	local maxDistance = hVector - (hVector - NEV) ^ (- bLength / GetDistance(NEV))
+	local pushLine = Line(Point(NEV.x, NEV.y, NEV.z), Point(maxDistance.x, maxDistance.y, maxDistance.z))
+	for _, pos in pairs(pushLine:__getPoints()) do
+		if MapPosition:inWall(pos) or MapPosition:intersectsWall(pos) then
+			if GetDistance(pos, target) <= range then
+				return pos
+			end
+		end
+	end
+	
+	local SWV = hVector:normalized() - bLength
+	maxDistance = hVector - (hVector - SWV) ^ (- bLength / GetDistance(SWV))
+	pushLine = Line(Point(SWV.x, SWV.y, SWV.z), Point(maxDistance.x, maxDistance.y, maxDistance.z))
+	for _, pos in pairs(pushLine:__getPoints()) do
+		if MapPosition:inWall(pos) or MapPosition:intersectsWall(pos) then
+			if GetDistance(pos, target) <= range then
+				return pos
+			end
+		end
+	end
+	return false
 end
 
 function TumbleEnd(loc)
@@ -754,6 +852,7 @@ OnLoad(function(mHero)
 	mainMenu:Menu("Combo", "--[[ Combo ]]--")
 		mainMenu.Combo:Menu("Q", "--[[ Q - Tumble ]]--")
 			mainMenu.Combo.Q:Boolean("use", "Use Spell [Q]", true)
+			mainMenu.Combo.Q:Boolean("usePosition", "Use Spell to Position [Q]", true)
 			mainMenu.Combo.Q:Boolean("reset", "Use For [Reset]", true)
 			
 		mainMenu.Combo:Menu("E", "--[[ E - Condemn ]]--")
@@ -859,7 +958,7 @@ OnLoad(function(mHero)
 		mainMenu.draw:Boolean("drawAARange", "Draw [Enemy AA Range]", true)
 	
 	PrettyPrint("Done Loading Champion [Vayne]")
-	PrettyPrint("Welcome To Clean Mechanics - Vayne. By: AZer0")
+	PrettyPrint("Welcome To Clean Mechanics - Vayne [Version: " .. version .. "]. By: AZer0")
 	PrettyPrint("If you find any issues please let me know. This script is in BETA.")
 end)
 
